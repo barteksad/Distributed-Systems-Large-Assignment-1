@@ -1,5 +1,6 @@
 use assignment_1_solution::{Handler, ModuleRef, System};
 use async_channel::{unbounded, Receiver, Sender};
+use log::debug;
 use ntest::timeout;
 use std::borrow::BorrowMut;
 use std::future::Future;
@@ -7,6 +8,12 @@ use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 const ROUNDS: u32 = 5;
+
+#[cfg(test)]
+#[ctor::ctor]
+fn init() {
+    env_logger::init();
+}
 
 struct PingPong {
     other: Option<ModuleRef<PingPong>>,
@@ -83,7 +90,7 @@ async fn initialize_system(sys: &mut System) -> Receiver<String> {
 }
 
 #[tokio::test]
-#[timeout(300)]
+#[timeout(3000)]
 async fn ping_pong_runs_correctly() {
     let mut sys = System::new().await;
     let log_receiver = initialize_system(sys.borrow_mut()).await;
@@ -98,7 +105,6 @@ async fn ping_pong_runs_correctly() {
             assert_eq!(prepare_msg(name, round), log_receiver.recv().await.unwrap());
         }
     }
-
     sys.shutdown().await;
 }
 
@@ -148,6 +154,7 @@ async fn set_timer(
 #[tokio::test]
 #[timeout(300)]
 async fn second_tick_arrives_after_correct_interval() {
+
     let mut sys = System::new().await;
     let (timeout_sender, timeout_receiver) = unbounded::<Timeout>();
     let timeout_interval = Duration::from_millis(50);
@@ -164,7 +171,9 @@ async fn second_tick_arrives_after_correct_interval() {
     timeout_receiver.recv().await.unwrap();
     let elapsed = start_instant.elapsed();
 
-    assert!((elapsed.as_millis() as i128 - (timeout_interval.as_millis() * 2) as i128).abs() <= 1);
+    let a = (elapsed.as_millis() as i128 - (timeout_interval.as_millis() * 2) as i128).abs();
+    debug!("Elapsed {:?}", a);
+    assert!(a <= 1);
     sys.shutdown().await;
 }
 
