@@ -1,6 +1,6 @@
 use async_channel::{unbounded, Receiver, Sender};
 use log::debug;
-use tokio::task::JoinHandle;
+use tokio::{task::JoinHandle, time::Instant};
 use std::{time::Duration, collections::LinkedList};
 
 pub trait Message: Send + 'static {}
@@ -150,6 +150,7 @@ impl<T: Module> ModuleRef<T> {
     {
         let (tx, rx) = unbounded::<()>();
         let msg_tx = self.msg_tx.clone();
+        let mut interval = tokio::time::interval_at(Instant::now() + delay, delay);
 
         tokio::spawn( async move {
             loop {
@@ -157,7 +158,7 @@ impl<T: Module> ModuleRef<T> {
                     Ok(_) = rx.recv() => {
                         break;
                     },
-                    _ = tokio::time::sleep(delay) => {
+                    _ = interval.tick() => {
                         let msg = Box::new(message.clone());
                         if let Err(_) = msg_tx.send(msg).await {
                             break;
