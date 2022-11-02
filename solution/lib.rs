@@ -1,4 +1,4 @@
-use async_channel::{unbounded, Receiver, Sender, bounded};
+use async_channel::{unbounded, Receiver, Sender};
 use log::debug;
 use tokio::task::JoinHandle;
 use std::{time::Duration, collections::LinkedList};
@@ -28,7 +28,6 @@ impl<M: Message, T: Handler<M>> Handlee<T> for M {
     }
 }
 
-
 /// A handle returned by `ModuleRef::request_tick()`, can be used to stop sending further ticks.
 // You can add fields to this struct
 pub struct TimerHandle {
@@ -45,28 +44,35 @@ impl TimerHandle {
 
 async fn module_loop<T: Module>(mut module: T, module_ref: ModuleRef<T>, msg_rx: Receiver<Box<dyn Handlee<T>>>, shutdown_rx: Receiver<()>) {
     loop {
+        debug!("In loop");
         // Because tokio::select is random first check if we are after shutdown
         if let Ok(_) = shutdown_rx.try_recv() {
+            debug!("Received signal to shutdown!");
             break;
         }
 
         tokio::select! {
             Ok(_) = shutdown_rx.recv() => {
+                debug!("Received signal to shutdown!");
                 break;
             },
             Ok(msg) = msg_rx.recv() => {
+                debug!("module received new message");
                 msg.get_handled(&module_ref, &mut module).await;
+                debug!("Message handeled!");
             }
-            Err(e) = shutdown_rx.recv() => {
-                debug!("{:?}", e);
-                break;
-            },
-            Err(e) = msg_rx.recv() => {
-                debug!("{:?}", e);
-                break;
-            }
+            // Err(e) = shutdown_rx.recv() => {
+            //     debug!("{:?}", e);
+            //     break;
+            // },
+            // Err(e) = msg_rx.recv() => {
+            //     debug!("{:?}", e);
+            //     break;
+            // }
         }
     }
+
+    debug!("After loop");
 }
 
 // You can add fields to this struct.
@@ -79,6 +85,7 @@ impl System {
     /// Registers the module in the system.
     /// Returns a `ModuleRef`, which can be used then to send messages to the module.
     pub async fn register_module<T: Module>(&mut self, module: T) -> ModuleRef<T> {
+        debug!("Registering new module");
         let (msg_tx, msg_rx) = unbounded::<Box<dyn Handlee<T>>>();
         let module_ref = ModuleRef { msg_tx };
         let shutdown_rx = self.shutdown_txrx.1.clone();
@@ -86,17 +93,30 @@ impl System {
         let join_handle = tokio::spawn(module_loop(module, module_ref.clone(), msg_rx, shutdown_rx));
         self.join_handles.push_back(join_handle);
 
-        unimplemented!();        
+        module_ref
     }
 
     /// Creates and starts a new instance of the system.
     pub async fn new() -> Self {
-        unimplemented!()
+        System {
+            join_handles: LinkedList::new(),
+            shutdown_txrx: unbounded(),
+        }
     }
 
     /// Gracefully shuts the system down.
     pub async fn shutdown(&mut self) {
-        unimplemented!()
+        debug!("Shutting down module...");
+        for _ in 0..self.join_handles.len() {
+            _ = self.shutdown_txrx.0.send(()).await;
+        }
+
+        for task in self.join_handles.iter_mut() {
+            if let Err(e) = task.await {
+                debug!("Error in shutdown {:?}", e);
+            }
+        }
+        debug!("Done!");
     }
 }
 
@@ -112,9 +132,11 @@ impl<T: Module> ModuleRef<T> {
     where
         T: Handler<M>,
     {
+        debug!("Sending new message...");
         if let Err(e) = self.msg_tx.send(Box::new(msg)).await {
             debug!("{:?}", e);
         }
+        debug!("Done!");
     }
 
     /// Schedules a message to be sent to the module periodically with the given interval.
@@ -126,28 +148,26 @@ impl<T: Module> ModuleRef<T> {
         M: Message + Clone,
         T: Handler<M>,
     {
-        let (tx, rx) = bounded::<()>(1);
+        let (tx, rx) = unbounded::<()>();
         let msg_tx = self.msg_tx.clone();
 
         tokio::spawn( async move {
             loop {
                 tokio::select! {
-                    th = rx.recv() => {
-                        if let Err(e) = th {
-                            debug!("Error in request tick {:?}", e)
-                        }
+                    Ok(_) = rx.recv() => {
+                        break;
                     },
                     _ = tokio::time::sleep(delay) => {
                         let msg = Box::new(message.clone());
-                        if let Err(e) = msg_tx.send(msg).await {
-                            debug!("Error in request tick {:?}", e);
+                        if let Err(_) = msg_tx.send(msg).await {
+                            break;
                         }
                     }
                 }
             }
         });
 
-        TimerHandle { tx}
+        TimerHandle { tx }
 
     }
 }
@@ -155,6 +175,7 @@ impl<T: Module> ModuleRef<T> {
 impl<T: Module> Clone for ModuleRef<T> {
     /// Creates a new reference to the same module.
     fn clone(&self) -> Self {
+        debug!("Module cloned!");
         ModuleRef { msg_tx: self.msg_tx.clone() }
     }
 }
