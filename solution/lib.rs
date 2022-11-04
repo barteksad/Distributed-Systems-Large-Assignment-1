@@ -61,14 +61,6 @@ async fn module_loop<T: Module>(mut module: T, module_ref: ModuleRef<T>, msg_rx:
                 msg.get_handled(&module_ref, &mut module).await;
                 debug!("Message handeled!");
             }
-            // Err(e) = shutdown_rx.recv() => {
-            //     debug!("{:?}", e);
-            //     break;
-            // },
-            // Err(e) = msg_rx.recv() => {
-            //     debug!("{:?}", e);
-            //     break;
-            // }
         }
     }
 
@@ -132,11 +124,9 @@ impl<T: Module> ModuleRef<T> {
     where
         T: Handler<M>,
     {
-        debug!("Sending new message...");
         if let Err(e) = self.msg_tx.send(Box::new(msg)).await {
             debug!("{:?}", e);
         }
-        debug!("Done!");
     }
 
     /// Schedules a message to be sent to the module periodically with the given interval.
@@ -148,9 +138,9 @@ impl<T: Module> ModuleRef<T> {
         M: Message + Clone,
         T: Handler<M>,
     {
+        let mut interval = tokio::time::interval_at(Instant::now() + delay, delay);
         let (tx, rx) = unbounded::<()>();
         let msg_tx = self.msg_tx.clone();
-        let mut interval = tokio::time::interval_at(Instant::now() + delay, delay);
 
         tokio::spawn( async move {
             loop {
