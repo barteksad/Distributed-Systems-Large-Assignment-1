@@ -2,6 +2,8 @@ use std::sync::Arc;
 use std::{sync::atomic::AtomicI16};
 use std::time::{Duration};
 use assignment_1_solution::{Handler, ModuleRef, System};
+use async_channel::{Sender, unbounded};
+use log::debug;
 use ntest::timeout;
 
 #[cfg(test)]
@@ -118,4 +120,97 @@ async fn time_sleep() {
     tokio::time::sleep(Duration::from_millis(1)).await;
 
     sys.shutdown().await;
+}
+
+#[derive(Clone)]
+struct Pass;
+
+struct Circle {
+    other: Option<ModuleRef<Circle>>,
+    n_passes: i32,
+    passes: i32,
+    sleep: Duration,
+    output : Option<Sender<()>>
+}
+
+impl Circle {
+    fn new(o : Option<Sender<()>>) -> Self {
+        Circle {
+            other:None,
+            n_passes:10,
+            passes:0,
+            sleep: Duration::from_millis(100),
+            output: o,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Init {
+    target: ModuleRef<Circle>,
+}
+
+
+#[async_trait::async_trait]
+impl Handler<Pass> for Circle {
+    async fn handle(&mut self, _self_ref: &ModuleRef<Self> , _msg:Pass) {
+        debug!("target: {:?}, passes: {}", self.other.is_some(), self.passes);
+        self.passes = self.passes + 1;
+        if self.passes >= self.n_passes {
+            if let Some(s) = &self.output {
+                _ = s.send(()).await;
+            } else {
+                self.other.as_ref().unwrap().send(Pass).await;
+            }
+        } else {
+            self.other.as_ref().unwrap().send(Pass).await;
+        }
+
+        tokio::time::sleep(self.sleep).await;
+    }
+}
+
+#[async_trait::async_trait]
+impl Handler<Init> for Circle {
+    async fn handle(&mut self, _self_ref: &ModuleRef<Self> , msg:Init) {
+        self.other = Some(msg.target);
+    }
+}
+
+#[tokio::test]
+#[timeout(2500)]
+async fn time_circle() {
+    let mut sys = System::new().await;
+    let mut circles = Vec::new();
+    let (tx, rx) = unbounded::<()>();
+    let n = 1000;
+
+    // let m1 = sys.register_module(Circle::new(None)).await;
+    // let m2 = sys.register_module(Circle::new(Some(tx))).await;
+
+    // m1.send(Init{target:m2.clone()}).await;
+    // m2.send(Init{target:m1.clone()}).await;
+    // tokio::time::sleep(Duration::from_millis(100)).await;
+    // m1.send(Pass).await;
+    for _ in 0..n-1 {
+        circles.push(sys.register_module(Circle::new(None)).await);
+    }
+
+    circles.push(sys.register_module(Circle::new(Some(tx))).await);
+
+    for i in 0..n-1 {
+        circles.get(i).unwrap().send(Init{
+            target : (*circles.get(i+1).as_ref().unwrap()).clone()
+        }).await;
+    }
+
+    circles.get(n-1).unwrap().send(Init{
+        target : (*circles.get(0).as_ref().unwrap()).clone()
+    }).await;
+
+    (*circles.get(0).as_ref().unwrap()).send(Pass).await;
+
+    _ = rx.recv().await;
+    sys.shutdown().await;
+
 }
