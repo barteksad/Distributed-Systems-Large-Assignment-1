@@ -64,7 +64,17 @@ async fn timer_stopped() {
     tokio::time::sleep(Duration::from_millis(120)).await;
     assert_eq!(c.load(std::sync::atomic::Ordering::Acquire), 6);
     _timer1.stop().await;
+    _timer1.stop().await;
+    _timer1.stop().await;
+    _timer1.stop().await;
     _timer2.stop().await;
+    _timer2.stop().await;
+    _timer2.stop().await;
+    _timer2.stop().await;
+    _timer2.stop().await;
+    _timer3.stop().await;
+    _timer3.stop().await;
+    _timer3.stop().await;
     _timer3.stop().await;
     tokio::time::sleep(Duration::from_millis(120)).await;
     assert_eq!(c.load(std::sync::atomic::Ordering::Acquire), 6);
@@ -185,13 +195,6 @@ async fn time_circle() {
     let (tx, rx) = unbounded::<()>();
     let n = 1000;
 
-    // let m1 = sys.register_module(Circle::new(None)).await;
-    // let m2 = sys.register_module(Circle::new(Some(tx))).await;
-
-    // m1.send(Init{target:m2.clone()}).await;
-    // m2.send(Init{target:m1.clone()}).await;
-    // tokio::time::sleep(Duration::from_millis(100)).await;
-    // m1.send(Pass).await;
     for _ in 0..n-1 {
         circles.push(sys.register_module(Circle::new(None)).await);
     }

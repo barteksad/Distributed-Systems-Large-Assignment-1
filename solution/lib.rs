@@ -64,7 +64,7 @@ async fn module_loop<T: Module>(mut module: T, module_ref: ModuleRef<T>, msg_rx:
         }
     }
 
-    debug!("After loop");
+    debug!("After module loop");
 }
 
 // You can add fields to this struct.
@@ -108,7 +108,7 @@ impl System {
                 debug!("Error in shutdown {:?}", e);
             }
         }
-        debug!("Done!");
+        debug!("Shutting down done!");
     }
 }
 
@@ -149,6 +149,7 @@ impl<T: Module> ModuleRef<T> {
                         break;
                     },
                     _ = interval.tick() => {
+                        // If module is dropped this send will fail and task will finish
                         let msg = Box::new(message.clone());
                         if let Err(_) = msg_tx.send(msg).await {
                             break;
